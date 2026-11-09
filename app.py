@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -50,7 +51,8 @@ if df_historico is not None:
 
     # Obtenemos los últimos 30 días reales
     ultimos_30_dias = df_historico.tail(30).copy()
-    secuencia_real = ultimos_30_dias['Sales'].values
+    # .copy() previene el error 'ValueError: assignment destination is read-only'
+    secuencia_real = ultimos_30_dias['Sales'].values.copy()
 
     # Permitir al usuario simular un valor para el día de hoy si lo desea
     st.info('A continuación puedes simular de forma interactiva la venta de hoy para ver el impacto predictivo de mañana:')
