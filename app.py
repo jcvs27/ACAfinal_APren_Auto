@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -122,11 +121,23 @@ if df_historico is not None:
             mae = mean_absolute_error(y_test_original, predicciones_originales)
             r2 = r2_score(y_test_original, predicciones_originales)
 
-            # Mostrar métricas en columnas elegantes
+            # Mostrar métricas en columnas elegantes con explicaciones detalladas para apoyo visual en video
             col1, col2, col3 = st.columns(3)
-            col1.metric("RMSE (Desviación del Error)", f"${rmse:,.2f} USD")
-            col2.metric("MAE (Error Absoluto Medio)", f"${mae:,.2f} USD")
-            col3.metric("R² Score (Bondad de Ajuste)", f"{r2:.4f}", help="Indica qué proporción de la varianza es explicada por la red (máximo 1.0)")
+            col1.metric(
+                "RMSE (Desviación del Error)", 
+                f"${rmse:,.2f} USD",
+                help="La Raíz del Error Cuadrático Medio (RMSE) mide la desviación típica del error. Al elevar al cuadrado los desvíos, penaliza severamente las predicciones muy alejadas de la realidad. Es ideal para vigilar que no haya pérdidas catastróficas inesperadas."
+            )
+            col2.metric(
+                "MAE (Error Absoluto Medio)", 
+                f"${mae:,.2f} USD",
+                help="El Error Absoluto Medio (MAE) representa el error promedio simple en valor absoluto. Te dice, de forma muy directa y fácil de explicar al negocio, por cuántos dólares nos desviamos típicamente por día."
+            )
+            col3.metric(
+                "R² Score (Bondad de Ajuste)", 
+                f"{r2:.4f}", 
+                help="El coeficiente de determinación R² mide la calidad de ajuste del modelo. Indica qué porcentaje de la variabilidad o tendencia real de las ventas diarias es explicada con éxito por la red neuronal LSTM (un valor de 1.0 es el escenario perfecto)."
+            )
 
             # Graficar la comparación
             fig_eval, ax_eval = plt.subplots(figsize=(10, 4))
