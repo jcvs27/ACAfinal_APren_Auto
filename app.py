@@ -55,7 +55,7 @@ if df_historico is not None:
         ultimos_30_dias = df_historico.tail(30).copy()
         secuencia_real = ultimos_30_dias['Sales'].values.copy()
 
-        venta_hoy_simulada = st.slider('Ventas estimadas para hoy (USD):', 
+        venta_hoy_simulada = st.slider('Venta para hoy (USD):', 
                                        min_value=0.0, 
                                        max_value=float(df_historico['Sales'].max() * 1.5), 
                                        value=float(secuencia_real[-1]))
