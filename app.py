@@ -1,11 +1,13 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import sqlite3
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, accuracy_score, f1_score, confusion_matrix
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 st.set_page_config(page_title='Dashboard LSTM de Ventas', layout='wide')
 
@@ -43,11 +45,10 @@ if df_historico is not None:
     scaler.fit(df_historico[['Sales']])
 
     # Crear pestañas en Streamlit para organizar la aplicación
-    tab1, tab2 = st.tabs(["🔮 Inferencia en Tiempo Real", "📈 Evaluación y Métricas del Modelo"])
+    tab1, tab2, tab3 = st.tabs(["🔮 Inferencia en Tiempo Real", "📈 Evaluación Cuantitativa del Modelo", "🖥️ Guía de la Interfaz Gráfica"])
 
     with tab1:
         st.subheader('🔮 Simulación y Predicción para Mañana')
-        # Mostrar una sección informativa de los últimos datos de la base de datos
         st.write('Últimos días registrados en la base de datos:')
         st.dataframe(df_historico.tail(5))
 
@@ -55,7 +56,7 @@ if df_historico is not None:
         ultimos_30_dias = df_historico.tail(30).copy()
         secuencia_real = ultimos_30_dias['Sales'].values.copy()
 
-        venta_hoy_simulada = st.slider('Venta para hoy (USD):', 
+        venta_hoy_simulada = st.slider('Ventas para hoy (USD):', 
                                        min_value=0.0, 
                                        max_value=float(df_historico['Sales'].max() * 1.5), 
                                        value=float(secuencia_real[-1]))
@@ -91,8 +92,7 @@ if df_historico is not None:
             st.warning(f'No se pudo ejecutar la predicción: {e}')
 
     with tab2:
-        st.subheader('📊 Desempeño Cuantitativo en Producción')
-        st.write('Análisis del conjunto de prueba (último 20% de los datos históricos de forma secuencial):')
+        st.subheader('📊 Desempeño Cuantitativo del Pipeline de Datos')
 
         try:
             # Preparar de nuevo el conjunto de prueba idéntico para evaluar
@@ -106,50 +106,83 @@ if df_historico is not None:
             sales_scaled = scaler.transform(df_historico[['Sales']]).flatten()
             X_all, y_all = crear_ventanas_deslizantes(sales_scaled, 30)
             X_all = X_all.reshape((X_all.shape[0], X_all.shape[1], 1))
-            
+
             split_idx = int(len(X_all) * 0.8)
             X_test, y_test = X_all[split_idx:], y_all[split_idx:]
 
             model_eval = tf.keras.models.load_model('sales_model.h5')
             predicciones_escaladas = model_eval.predict(X_test)
 
-            y_test_original = scaler.inverse_transform(y_test.reshape(-1, 1))
-            predicciones_originales = scaler.inverse_transform(predicciones_escaladas)
+            y_test_original = scaler.inverse_transform(y_test.reshape(-1, 1)).flatten()
+            predicciones_originales = scaler.inverse_transform(predicciones_escaladas).flatten()
 
-            # Cálculos de Métricas
+            # ---- Métricas de Regresión (Negocio Real) ----
             rmse = np.sqrt(mean_squared_error(y_test_original, predicciones_originales))
             mae = mean_absolute_error(y_test_original, predicciones_originales)
             r2 = r2_score(y_test_original, predicciones_originales)
 
-            # Mostrar métricas en columnas elegantes con explicaciones detalladas para apoyo visual en video
+            st.markdown("### 📉 Métricas de Negocio (Regresión)")
             col1, col2, col3 = st.columns(3)
-            col1.metric(
-                "RMSE (Desviación del Error)", 
-                f"${rmse:,.2f} USD",
-                help="La Raíz del Error Cuadrático Medio (RMSE) mide la desviación típica del error. Al elevar al cuadrado los desvíos, penaliza severamente las predicciones muy alejadas de la realidad. Es ideal para vigilar que no haya pérdidas catastróficas inesperadas."
-            )
-            col2.metric(
-                "MAE (Error Absoluto Medio)", 
-                f"${mae:,.2f} USD",
-                help="El Error Absoluto Medio (MAE) representa el error promedio simple en valor absoluto. Te dice, de forma muy directa y fácil de explicar al negocio, por cuántos dólares nos desviamos típicamente por día."
-            )
-            col3.metric(
-                "R² Score (Bondad de Ajuste)", 
-                f"{r2:.4f}", 
-                help="El coeficiente de determinación R² mide la calidad de ajuste del modelo. Indica qué porcentaje de la variabilidad o tendencia real de las ventas diarias es explicada con éxito por la red neuronal LSTM (un valor de 1.0 es el escenario perfecto)."
-            )
+            col1.metric("RMSE (Desviación Típica del Error)", f"${rmse:,.2f} USD")
+            col2.metric("MAE (Error Absoluto Medio)", f"${mae:,.2f} USD")
+            col3.metric("R2 Score (Calidad de Ajuste)", f"{r2:.4f}")
 
-            # Graficar la comparación
-            fig_eval, ax_eval = plt.subplots(figsize=(10, 4))
-            ax_eval.plot(y_test_original, label='Ventas Reales', color='teal', alpha=0.8)
-            ax_eval.plot(predicciones_originales, label='Pronósticos LSTM', color='crimson', linestyle='--')
-            ax_eval.set_title('Evaluación del Modelo: Serie Real vs Pronosticada')
-            ax_eval.set_xlabel('Días Evaluados')
-            ax_eval.set_ylabel('Ventas (USD)')
-            ax_eval.legend()
-            ax_eval.grid(True)
-            plt.tight_layout()
-            st.pyplot(fig_eval)
+            # ---- Adaptación a Métricas de Clasificación (Dirección del Mercado) ----
+            st.markdown("### 🎯 Métricas de Rendimiento sobre la Tendencia Diaria")
+            st.write("Para evaluar la capacidad predictiva del modelo en términos de clasificación, se analiza la dirección del cambio diario de ventas (sube/baja respecto al día anterior).")
+
+            # Definir la tendencia real y la predicha (1 si sube, 0 si se mantiene/baja)
+            tendencia_real = np.diff(y_test_original) > 0
+            tendencia_predicha = np.diff(predicciones_originales) > 0
+
+            accuracy = accuracy_score(tendencia_real, tendencia_predicha)
+            f1 = f1_score(tendencia_real, tendencia_predicha)
+
+            col_c1, col_c2 = st.columns(2)
+            col_c1.metric("Accuracy (Exactitud de Tendencia)", f"{accuracy*100:.2f}%")
+            col_c2.metric("F1-Score (Tendencia)", f"{f1:.4f}")
+
+            # Gráficos de Evaluación Integrados
+            col_g1, col_g2 = st.columns(2)
+
+            with col_g1:
+                st.write("**Matriz de Confusión (Dirección de Ventas):**")
+                cm = confusion_matrix(tendencia_real, tendencia_predicha)
+                fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                            xticklabels=['Baja/Igual', 'Sube'], 
+                            yticklabels=['Baja/Igual', 'Sube'], ax=ax_cm)
+                ax_cm.set_ylabel('Realidad')
+                ax_cm.set_xlabel('Predicción LSTM')
+                st.pyplot(fig_cm)
+
+            with col_g2:
+                st.write("**Comparativa de Serie Temporal:**")
+                fig_eval, ax_eval = plt.subplots(figsize=(6, 5.2))
+                ax_eval.plot(y_test_original, label='Ventas Reales', color='teal', alpha=0.8)
+                ax_eval.plot(predicciones_originales, label='Pronósticos LSTM', color='crimson', linestyle='--')
+                ax_eval.set_title('Serie Real vs Pronosticada')
+                ax_eval.set_xlabel('Días')
+                ax_eval.set_ylabel('Ventas (USD)')
+                ax_eval.legend()
+                ax_eval.grid(True)
+                st.pyplot(fig_eval)
 
         except Exception as e:
             st.error(f'Error al generar la sección de evaluación: {e}')
+
+    with tab3:
+        st.subheader("🖥️ Guía de Uso y Descripción de la Interfaz")
+        st.markdown("""
+### **Estructura General del Dashboard**
+Este panel de control interactivo está diseñado para simplificar el análisis predictivo de ventas diarias mediante tres componentes esenciales:
+
+1. **Inferencia en Tiempo Real:**
+   - **Vista de Datos:** Te muestra los últimos registros procesados en la base de datos de SQLite.
+   - **Deslizador de Ventas (Slider):** Te permite simular de forma interactiva la venta del día de hoy. El modelo utilizará automáticamente esta entrada simulada junto con los 29 días previos para proyectar de forma inmediata el pronóstico de mañana.
+   - **Visualización:** Genera un gráfico dinámico donde se observa la tendencia de los últimos 30 días y se resalta con un punto rojo el pronóstico para el día siguiente.
+
+2. **Evaluación de Rendimiento:**
+   - **Métricas de Regresión (RMSE, MAE, R2):** Evalúa el error promedio diario directamente en dólares, lo que permite estimar desviaciones de caja reales de forma financiera.
+   - **Métricas de Clasificación Adaptadas:** Ofrece indicadores clásicos de proyectos de analítica como el *F1-Score* e introduce la **Matriz de Confusión** que cuantifica cuántas veces el modelo acertó al predecir si el mercado se movería al alza o a la baja.
+""")
